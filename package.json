@@ -1,0 +1,9 @@
+{
+  "name": "smart-classroom-allocation-system",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && python manage.py runserver 0.0.0.0:8000"
+  }
+}
