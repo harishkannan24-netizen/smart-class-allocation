@@ -6,6 +6,7 @@ from .models import (
     Block, Campus, Department, Floor, Room, Section,
     TemporaryAllocation, TimetableEntry, Timeslot,
 )
+from .models import TimetableTemplate
 
 
 @admin.register(Campus)
@@ -59,10 +60,22 @@ class TimeslotAdmin(admin.ModelAdmin):
     ordering = ["order", "start_time"]
 
 
+@admin.register(TimetableTemplate)
+class TimetableTemplateAdmin(admin.ModelAdmin):
+    list_display = ["name", "active", "updated_at"]
+    list_editable = ["active"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (None, {"fields": ("name", "active")} ),
+        ("Template", {"fields": ("days", "timeslots")} ),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+    )
+
+
 @admin.register(TimetableEntry)
 class TimetableEntryAdmin(admin.ModelAdmin):
-    list_display = ["section", "day", "timeslot", "room", "faculty_name", "activity_type"]
-    list_filter = ["day", "activity_type", "timeslot"]
+    list_display = ["section", "day", "room", "faculty_name", "activity_type"]
+    list_filter = ["day", "activity_type"]
     search_fields = ["section__name", "faculty_name", "subject"]
 
 

@@ -142,6 +142,22 @@ class Timeslot(models.Model):
         return f"{self.label} ({self.start_time}-{self.end_time})"
 
 
+class TimetableTemplate(models.Model):
+    """Stores a JSON-driven timetable template so admins can edit days/timeslots in the admin UI."""
+    name = models.CharField(max_length=150, default="Default Template")
+    days = models.JSONField(default=list, help_text="List of {code, label} objects for days")
+    timeslots = models.JSONField(default=list, help_text="List of timeslot objects with label/start_time/end_time/order")
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return self.name
+
+
 class TimetableEntry(models.Model):
     """A single scheduled slot: which section is where, doing what, at what time."""
 
@@ -174,37 +190,20 @@ class TimetableEntry(models.Model):
     faculty_name = models.CharField(max_length=150, blank=True)
     activity_type = models.CharField(max_length=20, choices=ActivityType.choices, default=ActivityType.LECTURE)
     day = models.CharField(max_length=3, choices=Day.choices)
-    # Optional timeslot reference (preferred): a named slot like '09:00-09:45'
-    timeslot = models.ForeignKey(
-        "Timeslot", on_delete=models.SET_NULL, null=True, blank=True, related_name="entries"
-    )
-    # Keep start_time/end_time for backward compatibility and migration; optional
-    start_time = models.TimeField(null=True, blank=True)
-    end_time = models.TimeField(null=True, blank=True)
+    # Keep start_time/end_time for scheduled slots
+    start_time = models.TimeField(null=False, blank=False)
+    end_time = models.TimeField(null=False, blank=False)
 
     class Meta:
         ordering = ["day", "start_time"]
         verbose_name_plural = "Timetable entries"
 
     def clean(self):
-        if self.timeslot:
-            if self.start_time and self.start_time != self.timeslot.start_time:
-                raise ValidationError("The selected timeslot start time must match the entry start time.")
-            if self.end_time and self.end_time != self.timeslot.end_time:
-                raise ValidationError("The selected timeslot end time must match the entry end time.")
-            self.start_time = self.timeslot.start_time
-            self.end_time = self.timeslot.end_time
-
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValidationError("start_time must be before end_time.")
 
-        if not self.timeslot and (self.start_time is None or self.end_time is None):
-            raise ValidationError("A valid timeslot or both start and end time are required.")
-
     def save(self, *args, **kwargs):
-        if self.timeslot:
-            self.start_time = self.timeslot.start_time
-            self.end_time = self.timeslot.end_time
+        # start_time/end_time are authoritative
 
         if self.section_id:
             self.room = self.section.permanent_room

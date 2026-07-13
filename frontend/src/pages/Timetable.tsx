@@ -3,16 +3,32 @@ import type { FormEvent } from "react";
 import { Plus, Trash2, Edit3, UploadCloud } from "lucide-react";
 import api, { fetchAll } from "../api/client";
 import { subscribe } from "../utils/broadcast";
-import type { ActivityType, Day, Section, TimetableEntry, Timeslot } from "../types";
+import type { ActivityType, Day, Section, TimetableEntry } from "../types";
 import { useAuth } from "../context/AuthContext";
 
-const DAYS: { code: Day; label: string }[] = [
-  { code: "MON", label: "Monday" }, { code: "TUE", label: "Tuesday" }, { code: "WED", label: "Wednesday" },
-  { code: "THU", label: "Thursday" }, { code: "FRI", label: "Friday" }, { code: "SAT", label: "Saturday" },
+const DEFAULT_DAYS: { code: Day; label: string }[] = [
+  { code: "MON", label: "Monday" },
+  { code: "TUE", label: "Tuesday" },
+  { code: "WED", label: "Wednesday" },
+  { code: "THU", label: "Thursday" },
+  { code: "FRI", label: "Friday" },
 ];
 
 const ACTIVITY_TYPES: ActivityType[] = [
   "LECTURE", "LAB", "LIBRARY", "SEMINAR", "WORKSHOP", "SPORTS", "INTERNSHIP", "EXAM", "HOLIDAY",
+];
+
+// Fixed template timeslot columns (use labels and ranges from the image template)
+const DEFAULT_TEMPLATE_TIMESLOTS = [
+  { id: 1, label: '08:45 a.m. - 09:45 a.m.', start_time: '08:45:00', end_time: '09:45:00', order: 1 },
+  { id: 2, label: '09:45 a.m. - 10:45 a.m.', start_time: '09:45:00', end_time: '10:45:00', order: 2 },
+  { id: 3, label: '10:45 a.m. - 11:00 a.m. (BREAK)', start_time: '10:45:00', end_time: '11:00:00', order: 3 },
+  { id: 4, label: '11:00 a.m. - 12:00 p.m.', start_time: '11:00:00', end_time: '12:00:00', order: 4 },
+  { id: 5, label: '12:00 p.m. - 01:00 p.m.', start_time: '12:00:00', end_time: '13:00:00', order: 5 },
+  { id: 6, label: '01:00 p.m. - 02:00 p.m. (LUNCH)', start_time: '13:00:00', end_time: '14:00:00', order: 6 },
+  { id: 7, label: '02:00 p.m. - 03:00 p.m.', start_time: '14:00:00', end_time: '15:00:00', order: 7 },
+  { id: 8, label: '03:00 p.m. - 03:50 p.m.', start_time: '15:00:00', end_time: '15:50:00', order: 8 },
+  { id: 9, label: '03:50 p.m. - 04:40 p.m.', start_time: '15:50:00', end_time: '16:40:00', order: 9 },
 ];
 
 const activityColor: Record<ActivityType, string> = {
@@ -33,7 +49,9 @@ export default function Timetable() {
 
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
-  const [timeslots, setTimeslots] = useState<Timeslot[]>([]);
+  // use template timeslots fetched from backend (fall back to defaults)
+  const [timeslots, setTimeslots] = useState<any[]>(DEFAULT_TEMPLATE_TIMESLOTS as any[]);
+  const [days, setDays] = useState<{ code: Day; label: string }[]>(DEFAULT_DAYS);
   const [selectedSection, setSelectedSection] = useState<string>("");
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [departments, setDepartments] = useState<any[]>([]);
@@ -51,38 +69,43 @@ export default function Timetable() {
   const [uploadError, setUploadError] = useState("");
   const [uploadPreview, setUploadPreview] = useState<any>(null);
   const [confirmingUpload, setConfirmingUpload] = useState(false);
+  const [previewEntries, setPreviewEntries] = useState<any[] | null>(null);
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   // editable timeslot labels (one per line in the UI)
   const [selectedTimeLabels, setSelectedTimeLabels] = useState<string[]>([
-    "08:45 a.m. - 09:45 a.m.",
-    "09:45 a.m. - 10:45 a.m.",
-    "10:45 a.m. - 11:00 a.m. - BREAK",
-    "11:00 am to 12:00 pm",
-    "12:00 pm to 1:00 pm",
-    "01:00 p.m. - 02:00 p.m. - LUNCH",
-    "02:00 p.m. - 03:00 p.m.",
-    "03:00 p.m. - 03:50 p.m.",
-    "03:50 p.m. - 04:40 p.m.",
+    '08:45 a.m. - 09:45 a.m.',
+    '09:45 a.m. - 10:45 a.m.',
+    '10:45 a.m. - 11:00 a.m. (BREAK)',
+    '11:00 a.m. - 12:00 p.m.',
+    '12:00 p.m. - 01:00 p.m.',
+    '01:00 p.m. - 02:00 p.m. (LUNCH)',
+    '02:00 p.m. - 03:00 p.m.',
+    '03:00 p.m. - 03:50 p.m.',
+    '03:50 p.m. - 04:40 p.m.',
   ]);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const [form, setForm] = useState<any>({
     section: "", subject: "", faculty_name: "",
-    activity_type: "LECTURE", day: "MON", timeslot: "",
-    start_time: "09:00", end_time: "10:00",
+    activity_type: "LECTURE", day: "MON",
+    start_time: "08:45", end_time: "09:45",
   });
 
   const load = () => {
     Promise.all([
       fetchAll("/campus/timetable-entries/", { ...(selectedSection ? { section: selectedSection } : {}) }),
       fetchAll("/campus/sections/"),
-      fetchAll("/campus/timeslots/"),
       fetchAll("/campus/departments/"),
-    ]).then(([entriesData, sectionsData, timeslotsData, departmentsData]) => {
+      api.get("/campus/timetable-template/"),
+    ]).then(([entriesData, sectionsData, departmentsData, templateResp]) => {
       setEntries(entriesData as any[]);
       setSections(sectionsData as any[]);
-      setTimeslots(timeslotsData as any[]);
       setDepartments(departmentsData as any[]);
+      const template = templateResp.data || {};
+      if (template.timeslots) setTimeslots(template.timeslots);
+      if (template.days) setDays(template.days);
+    }).catch(() => {
+      // fallback already initialized
     });
   };
 
@@ -109,13 +132,9 @@ export default function Timetable() {
         faculty_name: form.faculty_name,
         activity_type: form.activity_type,
         day: form.day,
+        start_time: form.start_time,
+        end_time: form.end_time,
       };
-      if (form.timeslot) {
-        payload.timeslot = Number(form.timeslot);
-      } else {
-        payload.start_time = form.start_time;
-        payload.end_time = form.end_time;
-      }
       if (editingId) {
         await api.put(`/campus/timetable-entries/${editingId}/`, payload);
       } else {
@@ -140,7 +159,8 @@ export default function Timetable() {
       setShowForm(false);
       setForm({
         section: "", subject: "", faculty_name: "",
-        activity_type: "LECTURE", day: "MON", timeslot: "",
+        activity_type: "LECTURE", day: "MON",
+        start_time: "08:45", end_time: "09:45",
       });
       setRoomInfo({ room_number: "", block_name: "", floor_number: "", floor_name: "" });
       setRoomInfo({ room_number: "", block_name: "", floor_number: "", floor_name: "" });
@@ -155,7 +175,6 @@ export default function Timetable() {
       faculty_name: entry.faculty_name || "",
       activity_type: entry.activity_type,
       day: entry.day,
-      timeslot: entry.timeslot ? String(entry.timeslot) : "",
       start_time: entry.start_time ? entry.start_time.slice(0, 5) : "09:00",
       end_time: entry.end_time ? entry.end_time.slice(0, 5) : "10:00",
     });
@@ -205,10 +224,12 @@ export default function Timetable() {
         setUploadPreview(response.data);
         setConfirmingUpload(true);
         setPreviewFile(file);
+        setPreviewGrid(response.data.grid_preview || null);
       } else {
         setUploadPreview(null);
         setConfirmingUpload(false);
         setPreviewFile(null);
+        setPreviewGrid(null);
         alert(`Imported ${response.data.imported} timetable entries. Skipped ${response.data.skipped} invalid rows.`);
         load();
       }
@@ -217,6 +238,7 @@ export default function Timetable() {
       setUploadError(typeof detail === "string" ? detail : JSON.stringify(detail));
       setUploadPreview(null);
       setConfirmingUpload(false);
+      setPreviewGrid(null);
       setPreviewFile(null);
     } finally {
       setUploading(false);
@@ -264,8 +286,8 @@ export default function Timetable() {
                 setEditingId(null);
                 setForm({
                   section: "", subject: "", faculty_name: "",
-                  activity_type: "LECTURE", day: "MON", timeslot: "",
-                  start_time: "09:00", end_time: "10:00",
+                  activity_type: "LECTURE", day: "MON",
+                  start_time: "08:45", end_time: "09:45",
                 });
                 setRoomInfo({ room_number: "", block_name: "", floor_number: "", floor_name: "" });
                 setShowForm((s) => !s);
@@ -407,7 +429,7 @@ export default function Timetable() {
           <div>
             <label className="label">Day</label>
             <select className="input" value={form.day} onChange={(e) => setForm({ ...form, day: e.target.value })}>
-              {DAYS.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
+              {days.map((d: { code: Day; label: string }) => <option key={d.code} value={d.code}>{d.label}</option>)}
             </select>
           </div>
           <div>
@@ -418,27 +440,19 @@ export default function Timetable() {
             <label className="label">Faculty</label>
             <input className="input" value={form.faculty_name} onChange={(e) => setForm({ ...form, faculty_name: e.target.value })} />
           </div>
-          <div>
-            <label className="label">Timeslot (Optional)</label>
-            <select className="input" value={form.timeslot} onChange={(e) => setForm({ ...form, timeslot: e.target.value })}>
-              <option value="">Enter time manually</option>
-              {timeslots.filter((t) => t.active !== false).sort((a,b)=> (a.order ?? 0) - (b.order ?? 0)).map((t) => (
-                <option key={t.id} value={t.id}>{t.label} ({t.start_time.slice(0,5)}-{t.end_time.slice(0,5)})</option>
-              ))}
-            </select>
-          </div>
+          {/* Timeslot field removed — using start_time/end_time only */}
           <div className="sm:col-span-4">
             <label className="label">Quick Time Presets</label>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "09:00", end_time: "10:00" })}>09:00-10:00</button>
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "10:00", end_time: "11:00" })}>10:00-11:00</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "08:45", end_time: "09:45" })}>08:45-09:45</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "09:45", end_time: "10:45" })}>09:45-10:45</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "10:45", end_time: "11:00" })}>10:45-11:00</button>
               <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "11:00", end_time: "12:00" })}>11:00-12:00</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "12:00", end_time: "13:00" })}>12:00-13:00</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "13:00", end_time: "14:00" })}>13:00-14:00</button>
               <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "14:00", end_time: "15:00" })}>14:00-15:00</button>
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "15:00", end_time: "16:00" })}>15:00-16:00</button>
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "09:00", end_time: "09:50" })}>09:00-09:50</button>
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "10:00", end_time: "10:50" })}>10:00-10:50</button>
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "11:00", end_time: "11:50" })}>11:00-11:50</button>
-              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "14:00", end_time: "14:50" })}>14:00-14:50</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "15:00", end_time: "15:50" })}>15:00-15:50</button>
+              <button type="button" className="px-3 py-1 bg-slate-100 hover:bg-brand-50 rounded-md text-sm border border-slate-200" onClick={() => setForm({ ...form, start_time: "15:50", end_time: "16:40" })}>15:50-16:40</button>
             </div>
           </div>
           <div>
@@ -458,7 +472,7 @@ export default function Timetable() {
                 setEditingId(null);
                 setForm({
                   section: "", subject: "", faculty_name: "",
-                  activity_type: "LECTURE", day: "MON", timeslot: "",
+                  activity_type: "LECTURE", day: "MON",
                   start_time: "09:00", end_time: "10:00",
                 });
                 setRoomInfo({ room_number: "", block_name: "", floor_number: "", floor_name: "" });
@@ -476,18 +490,23 @@ export default function Timetable() {
           <table className="w-full table-auto border-collapse">
             <thead>
               <tr>
-                <th className="border px-3 py-2 text-left">Timeslot</th>
-                {DAYS.map((d) => <th key={d.code} className="border px-3 py-2 text-left">{d.label}</th>)}
+                <th className="border px-3 py-2 text-left">Day / Time</th>
+                {timeslots.sort((a,b)=> (a.order ?? 0) - (b.order ?? 0)).map((slot) => (
+                  <th key={slot.id} className="border px-3 py-2 text-left">
+                    <div className="font-mono text-sm">{slot.label}</div>
+                    <div className="text-xs opacity-70">{slot.start_time.slice(0,5)}–{slot.end_time.slice(0,5)}</div>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {timeslots.sort((a,b)=> (a.order ?? 0) - (b.order ?? 0)).map((slot) => (
-                <tr key={slot.id}>
-                  <td className="border px-3 py-2 align-top font-mono text-sm">{slot.label}<br/><span className="text-xs opacity-70">{slot.start_time.slice(0,5)}–{slot.end_time.slice(0,5)}</span></td>
-                  {DAYS.map((d) => {
-                    const cell = entries.find(e => e.day === d.code && (e.timeslot === slot.id || (e.start_time && e.start_time >= slot.start_time && e.start_time < slot.end_time)));
+              {days.map((d: { code: Day; label: string }) => (
+                <tr key={d.code}>
+                  <td className="border px-3 py-2 align-top font-medium">{d.label}</td>
+                  {timeslots.sort((a,b)=> (a.order ?? 0) - (b.order ?? 0)).map((slot) => {
+                    const cell = entries.find(e => e.day === d.code && (e.start_time && e.start_time >= slot.start_time && e.start_time < slot.end_time));
                     return (
-                      <td key={d.code} className="border px-3 py-2 align-top">
+                      <td key={slot.id + "-" + d.code} className="border px-3 py-2 align-top">
                         {cell ? (
                           <div className={`rounded-md border px-2 py-1 ${activityColor[cell.activity_type]}`}>
                             <div className="flex items-center justify-between">

@@ -83,14 +83,13 @@ class TimetableEntrySerializer(serializers.ModelSerializer):
     room_number = serializers.SerializerMethodField(read_only=True)
     room_block_name = serializers.SerializerMethodField(read_only=True)
     room_floor_number = serializers.SerializerMethodField(read_only=True)
-    timeslot_label = serializers.CharField(source="timeslot.label", read_only=True, default=None)
-    timeslot = serializers.PrimaryKeyRelatedField(queryset=Timeslot.objects.all(), required=False, allow_null=True)
+    timeslot_label = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = TimetableEntry
         fields = [
             "id", "section", "section_label", "room", "room_number", "room_block_name", "room_floor_number", "subject",
-            "faculty_name", "activity_type", "day", "timeslot", "timeslot_label", "start_time", "end_time",
+            "faculty_name", "activity_type", "day", "timeslot_label", "start_time", "end_time",
         ]
         read_only_fields = ["room"]
 
@@ -117,25 +116,18 @@ class TimetableEntrySerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         section = attrs.get("section", getattr(self.instance, "section", None))
-        timeslot = attrs.get("timeslot", getattr(self.instance, "timeslot", None))
+        # timeslot FK removed; rely on start_time/end_time
         day = attrs.get("day", getattr(self.instance, "day", None))
         faculty_name = attrs.get("faculty_name", getattr(self.instance, "faculty_name", None))
         start_time = attrs.get("start_time", getattr(self.instance, "start_time", None))
         end_time = attrs.get("end_time", getattr(self.instance, "end_time", None))
-
         if not section:
             raise serializers.ValidationError({"section": "Section is required."})
         if not day:
             raise serializers.ValidationError({"day": "Day is required."})
 
-        if timeslot:
-            if not timeslot.active and not (self.instance and self.instance.timeslot_id == timeslot.id):
-                raise serializers.ValidationError({"timeslot": "This timeslot is no longer active."})
-            attrs["start_time"] = timeslot.start_time
-            attrs["end_time"] = timeslot.end_time
-        else:
-            if not start_time or not end_time:
-                raise serializers.ValidationError({"start_time": "Either a timeslot or both start_time and end_time are required."})
+        if not start_time or not end_time:
+            raise serializers.ValidationError({"start_time": "Both start_time and end_time are required."})
 
         attrs["room"] = section.permanent_room
 
@@ -165,6 +157,11 @@ class TimetableEntrySerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+    def get_timeslot_label(self, obj):
+        # keep displaying label if timeslot relation exists on older records
+        ts = getattr(obj, 'timeslot', None)
+        return ts.label if ts else None
 
     def get_section_label(self, obj):
         return str(obj.section)

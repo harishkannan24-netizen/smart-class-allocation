@@ -6,13 +6,15 @@ def create_default_timeslots(apps, schema_editor):
     TimetableEntry = apps.get_model('campus', 'TimetableEntry')
     # default timeslots — user said timing optional; these are reasonable defaults
     defaults = [
-        ('TS1', '09:00', '09:45'),
-        ('TS2', '09:45', '10:30'),
-        ('TS3', '10:30', '11:15'),
-        ('TS4', '11:15', '12:00'),
-        ('TS5', '13:00', '13:45'),
-        ('TS6', '13:45', '14:30'),
-        ('TS7', '14:30', '15:15'),
+        ('08:45 a.m. - 09:45 a.m.', '08:45:00', '09:45:00'),
+        ('09:45 a.m. - 10:45 a.m.', '09:45:00', '10:45:00'),
+        ('10:45 a.m. - 11:00 a.m. - BREAK', '10:45:00', '11:00:00'),
+        ('11:00 a.m. - 12:00 p.m.', '11:00:00', '12:00:00'),
+        ('12:00 p.m. - 01:00 p.m.', '12:00:00', '13:00:00'),
+        ('01:00 p.m. - 02:00 p.m. - LUNCH', '13:00:00', '14:00:00'),
+        ('02:00 p.m. - 03:00 p.m.', '14:00:00', '15:00:00'),
+        ('03:00 p.m. - 03:50 p.m.', '15:00:00', '15:50:00'),
+        ('03:50 p.m. - 04:40 p.m.', '15:50:00', '16:40:00'),
     ]
     created = []
     for i, (label, start, end) in enumerate(defaults, start=1):

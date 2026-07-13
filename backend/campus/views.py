@@ -26,6 +26,10 @@ from .serializers import (
     TemporaryAllocationSerializer, TimetableEntrySerializer,
 )
 from .serializers import TimeslotSerializer
+from rest_framework.permissions import IsAuthenticated
+import json
+from django.http import JsonResponse
+from pathlib import Path
 from .services import find_free_rooms, get_room_status_for_slot, recommend_best_room
 from rest_framework.permissions import IsAuthenticated
 
@@ -106,7 +110,7 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
     ).all()
     serializer_class = TimetableEntrySerializer
     permission_classes = [IsSuperAdminOrDeptAdmin]
-    filterset_fields = ["section", "room", "day", "activity_type", "timeslot"]
+    filterset_fields = ["section", "room", "day", "activity_type"]
 
 
 class TemporaryAllocationViewSet(viewsets.ModelViewSet):
@@ -317,6 +321,31 @@ class RoomsTemplateView(APIView):
         resp = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         resp['Content-Disposition'] = 'attachment; filename=rooms-template.xlsx'
         return resp
+
+
+class TimetableTemplateView(APIView):
+    """Return a JSON template of days and timeslot columns used by the frontend grid."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Prefer an admin-editable DB template if present, otherwise fall back to the JSON file
+        try:
+            from .models import TimetableTemplate
+            tpl = TimetableTemplate.objects.filter(active=True).order_by("-updated_at").first()
+            if tpl:
+                return Response({"days": tpl.days, "timeslots": tpl.timeslots})
+        except Exception:
+            # ignore DB errors and fall back to file
+            pass
+
+        base = Path(__file__).resolve().parent
+        p = base / "timetable_template.json"
+        try:
+            with p.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            return Response({"detail": f"Could not load timetable template: {str(exc)}"}, status=500)
+        return Response(data)
 
 
 class DashboardStatsView(APIView):

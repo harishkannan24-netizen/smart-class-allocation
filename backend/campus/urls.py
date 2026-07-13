@@ -7,6 +7,7 @@ from .views import (
     ImportSectionsView, ImportTimetableEntriesView, RecommendRoomView, RoomViewSet,
     SectionViewSet, TemporaryAllocationViewSet, TimetableEntryViewSet,
     RoomChoicesView, RoomsTemplateView,
+    TimetableTemplateView,
 )
 from .views import TimeslotViewSet
 
@@ -30,6 +31,7 @@ urlpatterns = [
     path("import-timetable-entries/", ImportTimetableEntriesView.as_view(), name="import-timetable-entries"),
     path("room-choices/", RoomChoicesView.as_view(), name="room-choices"),
     path("rooms-template/", RoomsTemplateView.as_view(), name="rooms-template"),
+    path("timetable-template/", TimetableTemplateView.as_view(), name="timetable-template"),
     path("dashboard/", DashboardStatsView.as_view(), name="dashboard-stats"),
     path("", include(router.urls)),
 ]

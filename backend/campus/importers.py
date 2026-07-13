@@ -710,7 +710,6 @@ def _import_grid_timetable(grid_data, preview_mode=False, timeslot_labels=None):
             'faculty_name': _normalize_text(row.get('faculty_name')),
             'activity_type': row.get('activity_type') or TimetableEntry.ActivityType.LECTURE,
             'day': day,
-            'timeslot': timeslot.id if timeslot else None,
             'start_time': _normalize_time(start_time),
             'end_time': _normalize_time(end_time),
         }

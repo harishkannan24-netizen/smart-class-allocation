@@ -1,0 +1,18 @@
+{
+  "days": [
+    {"code": "MON", "label": "Monday"},
+    {"code": "TUE", "label": "Tuesday"},
+    {"code": "WED", "label": "Wednesday"},
+    {"code": "THU", "label": "Thursday"},
+    {"code": "FRI", "label": "Friday"}
+  ],
+  "timeslots": [
+    {"id": 1, "label": "08:45 a.m. - 09:45 a.m.", "start_time": "08:45:00", "end_time": "09:45:00", "order": 1},
+    {"id": 2, "label": "09:45 a.m. - 10:45 a.m.", "start_time": "09:45:00", "end_time": "10:45:00", "order": 2},
+    {"id": 3, "label": "10:45 a.m. - 11:00 a.m.", "start_time": "10:45:00", "end_time": "11:00:00", "order": 3},
+    {"id": 4, "label": "11:00 a.m. - 12:00 p.m.", "start_time": "11:00:00", "end_time": "12:00:00", "order": 4},
+    {"id": 5, "label": "12:00 p.m. - 01:00 p.m.", "start_time": "12:00:00", "end_time": "13:00:00", "order": 5},
+    {"id": 6, "label": "02:00 p.m. - 03:00 p.m.", "start_time": "14:00:00", "end_time": "15:00:00", "order": 6},
+    {"id": 7, "label": "03:50 p.m. - 04:40 p.m.", "start_time": "15:50:00", "end_time": "16:40:00", "order": 7}
+  ]
+}

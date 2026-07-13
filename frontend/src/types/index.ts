@@ -98,7 +98,6 @@ export interface TimetableEntry {
   day: Day;
   start_time?: string;
   end_time?: string;
-  timeslot?: number;
   timeslot_label?: string;
 }
 
