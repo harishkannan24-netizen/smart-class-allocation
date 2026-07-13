@@ -1,0 +1,3 @@
+block,floor,room_number,room_type,capacity,department,status,has_projector,has_smart_board,is_computer_lab,has_ac,has_wifi
+Block A,1,R101,CLASSROOM,60,,FREE,TRUE,FALSE,FALSE,TRUE,TRUE
+Block B,2,R202,LAB,30,,FREE,FALSE,TRUE,TRUE,TRUE,TRUE

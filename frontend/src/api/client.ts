@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
+import qs from "qs";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
 
@@ -67,3 +68,21 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+export const fetchAll = async (endpoint: string, params: Record<string, any> = {}): Promise<any[]> => {
+  const pageSize = params.page_size ?? 1000;
+  let page = 1;
+  let all: any[] = [];
+  while (true) {
+    const p = { ...params, page, page_size: pageSize };
+    const query = qs.stringify(p, { arrayFormat: "brackets" });
+    const url = endpoint.includes("?") ? `${endpoint}&${query}` : `${endpoint}?${query}`;
+    const res = await api.get(url);
+    const data = res.data;
+    const chunk = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
+    all.push(...chunk);
+    if (!data.next || chunk.length === 0) break;
+    page += 1;
+  }
+  return all;
+}

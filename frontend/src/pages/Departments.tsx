@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Trash2, Layers, UploadCloud, Edit3 } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
 import type { Department } from "../types";
 
 export default function Departments() {
@@ -17,9 +17,9 @@ export default function Departments() {
 
   const load = () => {
     setLoading(true);
-    api.get("/campus/departments/").then((res) => {
-      const data = res.data;
-      setItems(Array.isArray(data) ? data : data.results);
+    fetchAll("/campus/departments/").then((res: any) => {
+      const data = res;
+      setItems(Array.isArray(data) ? data : data.results ?? []);
     }).finally(() => setLoading(false));
   };
 

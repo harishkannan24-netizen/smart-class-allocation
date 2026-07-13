@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Trash2, DoorOpen, Wifi, Monitor, Snowflake, Projector, UploadCloud, Edit3 } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
+import { subscribe } from "../utils/broadcast";
 import { StatusBadge } from "../components/Badges";
 import type { Department, Floor, Room, RoomStatus, RoomType } from "../types";
 
@@ -13,6 +14,7 @@ export default function Rooms() {
   const [floors, setFloors] = useState<Floor[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tempAllocated, setTempAllocated] = useState<Record<number, any>>({});
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -29,17 +31,39 @@ export default function Rooms() {
   const load = () => {
     setLoading(true);
     Promise.all([
-      api.get("/campus/rooms/"),
-      api.get("/campus/floors/"),
-      api.get("/campus/departments/"),
-    ]).then(([r, f, d]) => {
-      setRooms(r.data.results ?? r.data);
-      setFloors(f.data.results ?? f.data);
-      setDepartments(d.data.results ?? d.data);
+      fetchAll("/campus/temporary-allocations/"),
+      fetchAll("/campus/rooms/"),
+      fetchAll("/campus/floors/"),
+      fetchAll("/campus/departments/"),
+    ]).then(([allocs, r, f, d]) => {
+      setRooms(r as any[]);
+      setFloors(f as any[]);
+      setDepartments(d as any[]);
+      const map: Record<number, any> = {};
+      const list = allocs as any[];
+      list.forEach((a: any) => {
+        if (!a?.room) return;
+        const key = a.room;
+        const existing = map[key];
+        if (!existing) map[key] = a;
+        else {
+          const t1 = existing.created_at ? Date.parse(existing.created_at) : (existing.id ?? 0);
+          const t2 = a.created_at ? Date.parse(a.created_at) : (a.id ?? 0);
+          if (t2 > t1) map[key] = a;
+        }
+      });
+      setTempAllocated(map);
     }).finally(() => setLoading(false));
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    const unsub = subscribe((m) => {
+      if (m.type === "temporary_allocation_created") load();
+    });
+    return unsub;
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -97,16 +121,45 @@ export default function Rooms() {
     setShowForm(true);
   };
 
-  const downloadTemplate = () => {
-    const headers = ["block", "floor", "room_number", "room_type", "capacity", "department", "status", "has_projector", "has_smart_board", "is_computer_lab", "has_ac", "has_wifi"];
-    const rows = [["Block A", "2", "LHA202", "CLASSROOM", "65", "1", "FREE", "TRUE", "FALSE", "FALSE", "TRUE", "TRUE"]];
-    const content = [headers.join(","), ...rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "rooms-template.csv";
-    link.click();
-    URL.revokeObjectURL(link.href);
+  const downloadTemplate = async () => {
+    const headers = ["floor", "room_number", "room_type", "capacity", "department", "status", "has_projector", "has_smart_board", "is_computer_lab", "has_ac", "has_wifi"];
+    // include a few sample rows to demonstrate bulk format
+    const rows = [] as string[][];
+    for (let i = 0; i < 20; i++) {
+      rows.push(["2", `LHA${200 + i}`, "CLASSROOM", "60", "", "FREE", "TRUE", "FALSE", "FALSE", "TRUE", "TRUE"]);
+    }
+
+    const downloadBlob = (blob: Blob, filename: string) => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    };
+
+    try {
+      const response = await api.get("/campus/rooms-template/", { responseType: "blob" });
+      downloadBlob(response.data, "rooms-template.xlsx");
+      return;
+    } catch (error) {
+      // fallback to CSV if XLSX download fails
+    }
+
+    try {
+      const res = await api.get("/campus/room-choices/");
+      const types = res.data.room_types.map((t: any) => t.value).join("|");
+      const statuses = res.data.statuses.map((s: any) => s.value).join("|");
+      const meta = [
+        `# Allowed room_type: ${types}`,
+        `# Allowed status: ${statuses}`,
+        `# Note: include 'block' and 'floor' to auto-create locations when importing`,
+      ];
+      const content = [...meta, headers.join(","), ...rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))].join("\n");
+      downloadBlob(new Blob([content], { type: "text/csv;charset=utf-8;" }), "rooms-template.csv");
+    } catch (error) {
+      const content = [headers.join(","), ...rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))].join("\n");
+      downloadBlob(new Blob([content], { type: "text/csv;charset=utf-8;" }), "rooms-template.csv");
+    }
   };
 
   const handleUpload = async (file?: File) => {
@@ -117,7 +170,14 @@ export default function Rooms() {
     formData.append("file", file);
 
     try {
-      const response = await api.post("/campus/import-rooms/", formData);
+      // include a longer timeout and multipart hints to better support large files
+      const response = await api.post("/campus/import-rooms/", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000,
+        // axios/browser hints for large payloads
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      });
       alert(`Imported ${response.data.imported} rooms.`);
       load();
     } catch (error: any) {
@@ -251,7 +311,26 @@ export default function Rooms() {
                   <p className="text-base font-bold text-slate-800">{room.room_number}</p>
                   <p className="text-xs text-slate-500">{room.block_name} · Floor {room.floor_number}</p>
                 </div>
-                <StatusBadge status={room.status} />
+                <div>
+                  {tempAllocated[room.id] ? (
+                    <>
+                      <span
+                        className="badge bg-amber-50 text-amber-700"
+                        title={`${tempAllocated[room.id].section_label ?? ''} · ${tempAllocated[room.id].day ?? ''} ${tempAllocated[room.id].start_time ? tempAllocated[room.id].start_time.slice(0,5) : ''}-${tempAllocated[room.id].end_time ? tempAllocated[room.id].end_time.slice(0,5) : ''}${tempAllocated[room.id].reason ? ' · ' + tempAllocated[room.id].reason : ''}`}
+                      >
+                        Allocated (temp)
+                      </span>
+                      <div className="mt-2 text-xs text-slate-600">
+                        {tempAllocated[room.id].section_label ? <span>{tempAllocated[room.id].section_label}</span> : null}
+                        {tempAllocated[room.id].start_time ? (
+                          <span>{` · ${tempAllocated[room.id].start_time.slice(0,5)}-${tempAllocated[room.id].end_time?.slice(0,5) ?? ''}`}</span>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <StatusBadge status={room.status} />
+                  )}
+                </div>
               </div>
               <div className="mb-3 flex flex-wrap gap-1.5">
                 <span className="badge bg-slate-100 text-slate-600">{room.room_type.replace("_", " ")}</span>

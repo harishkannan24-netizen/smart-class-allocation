@@ -14,6 +14,7 @@ import Timetable from "./pages/Timetable";
 import FreeRoomFinder from "./pages/FreeRoomFinder";
 import Allocations from "./pages/Allocations";
 import UserManagement from "./pages/UserManagement";
+import ImportData from "./pages/ImportData";
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
               <Route element={<ProtectedRoute allow={["SUPER_ADMIN", "DEPT_ADMIN"]} />}>
                 <Route path="/rooms" element={<Rooms />} />
                 <Route path="/sections" element={<Sections />} />
+                <Route path="/import-data" element={<ImportData />} />
               </Route>
             </Route>
           </Route>

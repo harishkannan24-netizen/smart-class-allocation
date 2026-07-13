@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Search, DoorOpen, Sparkles } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
 import { StatusBadge } from "../components/Badges";
 import type { Day, Department, Room, RoomType } from "../types";
 import { useAuth } from "../context/AuthContext";
@@ -46,7 +46,7 @@ export default function FreeRoomFinder() {
   });
 
   useEffect(() => {
-    api.get("/campus/departments/").then((r) => setDepartments(r.data.results ?? r.data));
+    fetchAll("/campus/departments/").then((r: any) => setDepartments(r as any[]));
   }, []);
 
   const search = async (e?: FormEvent) => {

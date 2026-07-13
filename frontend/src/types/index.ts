@@ -76,6 +76,9 @@ export interface Section {
   class_advisor?: string;
   permanent_room?: number | null;
   permanent_room_number?: string | null;
+  permanent_room_block_name?: string | null;
+  permanent_room_floor_number?: number | null;
+  permanent_room_floor_name?: string | null;
   label?: string;
 }
 
@@ -93,8 +96,19 @@ export interface TimetableEntry {
   faculty_name?: string;
   activity_type: ActivityType;
   day: Day;
+  start_time?: string;
+  end_time?: string;
+  timeslot?: number;
+  timeslot_label?: string;
+}
+
+export interface Timeslot {
+  id: number;
+  label: string;
   start_time: string;
   end_time: string;
+  order?: number;
+  active?: boolean;
 }
 
 export type AllocationStatus = "PENDING" | "APPROVED" | "REJECTED" | "COMPLETED" | "CANCELLED";
@@ -106,6 +120,7 @@ export interface TemporaryAllocation {
   room_block_name?: string;
   section: number;
   section_label?: string;
+  section_year?: number;
   day: Day;
   start_time: string;
   end_time: string;

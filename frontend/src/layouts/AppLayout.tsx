@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Building2, Layers, DoorOpen, GraduationCap,
-  Users2, CalendarClock, Search, ArrowLeftRight, LogOut, School,
+  Users2, CalendarClock, Search, ArrowLeftRight, LogOut, School, FileUp,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { RoleBadge } from "../components/Badges";
@@ -20,6 +20,7 @@ const navItems: NavItem[] = [
   { to: "/departments", label: "Departments", icon: Layers, roles: ["SUPER_ADMIN"] },
   { to: "/rooms", label: "Rooms", icon: DoorOpen, roles: ["SUPER_ADMIN", "DEPT_ADMIN"] },
   { to: "/sections", label: "Sections", icon: GraduationCap, roles: ["SUPER_ADMIN", "DEPT_ADMIN"] },
+  { to: "/import-data", label: "Import Data", icon: FileUp, roles: ["SUPER_ADMIN", "DEPT_ADMIN"] },
   { to: "/timetable", label: "Timetable", icon: CalendarClock },
   { to: "/free-rooms", label: "Find Free Room", icon: Search },
   { to: "/allocations", label: "Temporary Allocation", icon: ArrowLeftRight },

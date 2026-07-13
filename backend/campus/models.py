@@ -122,6 +122,25 @@ class Section(models.Model):
     def __str__(self):
         return f"{self.department.code}-{self.year}{self.name}"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.timetable_entries.update(room=self.permanent_room)
+
+
+class Timeslot(models.Model):
+    """A named timeslot used across the timetable, e.g. '09:00-09:45'."""
+    label = models.CharField(max_length=60)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    order = models.PositiveSmallIntegerField(default=0, help_text="Ordering for display")
+    active = models.BooleanField(default=True, help_text="Active time slots are shown in the timetable grid and available for new entries.")
+
+    class Meta:
+        ordering = ["order", "start_time"]
+
+    def __str__(self):
+        return f"{self.label} ({self.start_time}-{self.end_time})"
+
 
 class TimetableEntry(models.Model):
     """A single scheduled slot: which section is where, doing what, at what time."""
@@ -155,16 +174,42 @@ class TimetableEntry(models.Model):
     faculty_name = models.CharField(max_length=150, blank=True)
     activity_type = models.CharField(max_length=20, choices=ActivityType.choices, default=ActivityType.LECTURE)
     day = models.CharField(max_length=3, choices=Day.choices)
-    start_time = models.TimeField()
-    end_time = models.TimeField()
+    # Optional timeslot reference (preferred): a named slot like '09:00-09:45'
+    timeslot = models.ForeignKey(
+        "Timeslot", on_delete=models.SET_NULL, null=True, blank=True, related_name="entries"
+    )
+    # Keep start_time/end_time for backward compatibility and migration; optional
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["day", "start_time"]
         verbose_name_plural = "Timetable entries"
 
     def clean(self):
+        if self.timeslot:
+            if self.start_time and self.start_time != self.timeslot.start_time:
+                raise ValidationError("The selected timeslot start time must match the entry start time.")
+            if self.end_time and self.end_time != self.timeslot.end_time:
+                raise ValidationError("The selected timeslot end time must match the entry end time.")
+            self.start_time = self.timeslot.start_time
+            self.end_time = self.timeslot.end_time
+
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValidationError("start_time must be before end_time.")
+
+        if not self.timeslot and (self.start_time is None or self.end_time is None):
+            raise ValidationError("A valid timeslot or both start and end time are required.")
+
+    def save(self, *args, **kwargs):
+        if self.timeslot:
+            self.start_time = self.timeslot.start_time
+            self.end_time = self.timeslot.end_time
+
+        if self.section_id:
+            self.room = self.section.permanent_room
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.section} - {self.day} {self.start_time}-{self.end_time}"

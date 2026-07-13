@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Users2 } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
 import { RoleBadge } from "../components/Badges";
 import type { Department, Role, User } from "../types";
 
@@ -20,8 +20,8 @@ export default function UserManagement() {
   });
 
   const load = () => {
-    api.get("/users/").then((r) => setUsers(r.data.results ?? r.data));
-    api.get("/campus/departments/").then((r) => setDepartments(r.data.results ?? r.data));
+    fetchAll("/users/").then((r: any) => setUsers(r as any[]));
+    fetchAll("/campus/departments/").then((r: any) => setDepartments(r as any[]));
   };
 
   useEffect(load, []);

@@ -30,7 +30,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (user?.role !== "FACULTY") return;
     setClassLoading(true);
-    api.get<{ results: TimetableEntry[] }>("/campus/timetable-entries/?page_size=100")
+    api.get<{ results: TimetableEntry[] }>("/campus/timetable-entries/", { params: { page_size: 1000 } })
       .then((res) => {
         const facultyName = `${user.first_name} ${user.last_name}`.trim();
         const matches = res.data.results.filter((entry) =>

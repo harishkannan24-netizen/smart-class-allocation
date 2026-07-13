@@ -1,8 +1,9 @@
+from django.db.models import Q
 from rest_framework import serializers
 
 from .models import (
     Block, Campus, Department, Floor, Room, Section,
-    TemporaryAllocation, TimetableEntry,
+    TemporaryAllocation, TimetableEntry, Timeslot,
 )
 
 
@@ -53,61 +54,134 @@ class RoomSerializer(serializers.ModelSerializer):
 class SectionSerializer(serializers.ModelSerializer):
     department_code = serializers.CharField(source="department.code", read_only=True)
     permanent_room_number = serializers.CharField(source="permanent_room.room_number", read_only=True)
+    permanent_room_block_name = serializers.CharField(source="permanent_room.floor.block.name", read_only=True)
+    permanent_room_floor_number = serializers.IntegerField(source="permanent_room.floor.number", read_only=True)
+    permanent_room_floor_name = serializers.CharField(source="permanent_room.floor.name", read_only=True)
     label = serializers.SerializerMethodField()
 
     class Meta:
         model = Section
         fields = [
             "id", "department", "department_code", "year", "name", "semester",
-            "strength", "class_advisor", "permanent_room", "permanent_room_number", "label",
+            "strength", "class_advisor", "permanent_room", "permanent_room_number",
+            "permanent_room_block_name", "permanent_room_floor_number", "permanent_room_floor_name", "label",
         ]
 
     def get_label(self, obj):
         return str(obj)
 
 
+class TimeslotSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Timeslot
+        fields = ["id", "label", "start_time", "end_time", "order", "active"]
+
+
 class TimetableEntrySerializer(serializers.ModelSerializer):
-    section_label = serializers.CharField(source="section.__str__", read_only=True)
-    room_number = serializers.CharField(source="room.room_number", read_only=True, default=None)
+    section_label = serializers.SerializerMethodField(read_only=True)
+    room = serializers.SerializerMethodField(read_only=True)
+    room_number = serializers.SerializerMethodField(read_only=True)
+    room_block_name = serializers.SerializerMethodField(read_only=True)
+    room_floor_number = serializers.SerializerMethodField(read_only=True)
+    timeslot_label = serializers.CharField(source="timeslot.label", read_only=True, default=None)
+    timeslot = serializers.PrimaryKeyRelatedField(queryset=Timeslot.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = TimetableEntry
         fields = [
-            "id", "section", "section_label", "room", "room_number", "subject",
-            "faculty_name", "activity_type", "day", "start_time", "end_time",
+            "id", "section", "section_label", "room", "room_number", "room_block_name", "room_floor_number", "subject",
+            "faculty_name", "activity_type", "day", "timeslot", "timeslot_label", "start_time", "end_time",
         ]
+        read_only_fields = ["room"]
+
+    def _get_effective_room(self, obj):
+        if obj.section_id and obj.section and obj.section.permanent_room:
+            return obj.section.permanent_room
+        return obj.room
+
+    def get_room(self, obj):
+        room = self._get_effective_room(obj)
+        return room.id if room else None
+
+    def get_room_number(self, obj):
+        room = self._get_effective_room(obj)
+        return room.room_number if room else None
+
+    def get_room_block_name(self, obj):
+        room = self._get_effective_room(obj)
+        return room.floor.block.name if room and room.floor and room.floor.block else None
+
+    def get_room_floor_number(self, obj):
+        room = self._get_effective_room(obj)
+        return room.floor.number if room and room.floor else None
 
     def validate(self, attrs):
-        start = attrs.get("start_time", getattr(self.instance, "start_time", None))
-        end = attrs.get("end_time", getattr(self.instance, "end_time", None))
-        if start and end and start >= end:
+        section = attrs.get("section", getattr(self.instance, "section", None))
+        timeslot = attrs.get("timeslot", getattr(self.instance, "timeslot", None))
+        day = attrs.get("day", getattr(self.instance, "day", None))
+        faculty_name = attrs.get("faculty_name", getattr(self.instance, "faculty_name", None))
+        start_time = attrs.get("start_time", getattr(self.instance, "start_time", None))
+        end_time = attrs.get("end_time", getattr(self.instance, "end_time", None))
+
+        if not section:
+            raise serializers.ValidationError({"section": "Section is required."})
+        if not day:
+            raise serializers.ValidationError({"day": "Day is required."})
+
+        if timeslot:
+            if not timeslot.active and not (self.instance and self.instance.timeslot_id == timeslot.id):
+                raise serializers.ValidationError({"timeslot": "This timeslot is no longer active."})
+            attrs["start_time"] = timeslot.start_time
+            attrs["end_time"] = timeslot.end_time
+        else:
+            if not start_time or not end_time:
+                raise serializers.ValidationError({"start_time": "Either a timeslot or both start_time and end_time are required."})
+
+        attrs["room"] = section.permanent_room
+
+        start = attrs["start_time"]
+        end = attrs["end_time"]
+        if start >= end:
             raise serializers.ValidationError("start_time must be before end_time.")
 
-        # Conflict detection: same room, same day, overlapping time
-        room = attrs.get("room", getattr(self.instance, "room", None))
-        day = attrs.get("day", getattr(self.instance, "day", None))
-        if room and day and start and end:
-            qs = TimetableEntry.objects.filter(room=room, day=day, start_time__lt=end, end_time__gt=start)
-            if self.instance:
-                qs = qs.exclude(pk=self.instance.pk)
-            if qs.exists():
-                raise serializers.ValidationError(
-                    f"Room conflict: {room} is already booked on {day} during this time window."
-                )
+        effective_room = attrs["room"]
+        conflict_query = Q(day=day, start_time__lt=end, end_time__gt=start)
+        if self.instance:
+            conflict_query &= ~Q(pk=self.instance.pk)
+
+        if effective_room and TimetableEntry.objects.filter(conflict_query, room=effective_room).exists():
+            raise serializers.ValidationError(
+                {"room": f"Room conflict: {effective_room} is already booked on {day} during this time."}
+            )
+
+        if faculty_name and TimetableEntry.objects.filter(conflict_query, faculty_name__iexact=faculty_name).exists():
+            raise serializers.ValidationError(
+                {"faculty_name": f"Faculty conflict: {faculty_name} is already teaching another class on {day} during this time."}
+            )
+
+        if section and TimetableEntry.objects.filter(conflict_query, section=section).exists():
+            raise serializers.ValidationError(
+                {"section": f"Section conflict: {section} already has a class scheduled on {day} during this time."}
+            )
+
         return attrs
+
+    def get_section_label(self, obj):
+        return str(obj.section)
 
 
 class TemporaryAllocationSerializer(serializers.ModelSerializer):
     room_number = serializers.CharField(source="room.room_number", read_only=True)
     room_block_name = serializers.CharField(source="room.floor.block.name", read_only=True)
     section_label = serializers.CharField(source="section.__str__", read_only=True)
+    section_year = serializers.IntegerField(source="section.year", read_only=True)
     requested_by_name = serializers.CharField(source="requested_by.username", read_only=True)
 
     class Meta:
         model = TemporaryAllocation
         fields = [
-            "id", "room", "room_number", "room_block_name", "section", "section_label", "day",
-            "start_time", "end_time", "reason", "status",
+            "id", "room", "room_number", "room_block_name", "section", "section_label",
+            "section_year", "day", "start_time", "end_time", "reason", "status",
             "requested_by", "requested_by_name", "approved_by", "created_at",
         ]
         read_only_fields = ["requested_by", "approved_by", "created_at"]

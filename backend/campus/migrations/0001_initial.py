@@ -23,6 +23,17 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
             ],
         ),
+            migrations.CreateModel(
+                name='Timeslot',
+                fields=[
+                    ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                    ('label', models.CharField(max_length=60)),
+                    ('start_time', models.TimeField()),
+                    ('end_time', models.TimeField()),
+                    ('order', models.PositiveSmallIntegerField(default=0, help_text='Ordering for display')),
+                ],
+                options={'ordering': ['order', 'start_time']},
+            ),
         migrations.CreateModel(
             name='Department',
             fields=[
@@ -129,8 +140,9 @@ class Migration(migrations.Migration):
                 ('faculty_name', models.CharField(blank=True, max_length=150)),
                 ('activity_type', models.CharField(choices=[('LECTURE', 'Lecture'), ('LAB', 'Laboratory'), ('LIBRARY', 'Library'), ('SEMINAR', 'Seminar'), ('WORKSHOP', 'Workshop'), ('SPORTS', 'Sports'), ('INTERNSHIP', 'Internship'), ('EXAM', 'Exam'), ('HOLIDAY', 'Holiday')], default='LECTURE', max_length=20)),
                 ('day', models.CharField(choices=[('MON', 'Monday'), ('TUE', 'Tuesday'), ('WED', 'Wednesday'), ('THU', 'Thursday'), ('FRI', 'Friday'), ('SAT', 'Saturday'), ('SUN', 'Sunday')], max_length=3)),
-                ('start_time', models.TimeField()),
-                ('end_time', models.TimeField()),
+                   ('timeslot', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='entries', to='campus.timeslot')),
+                   ('start_time', models.TimeField(blank=True, null=True)),
+                   ('end_time', models.TimeField(blank=True, null=True)),
                 ('room', models.ForeignKey(blank=True, help_text='Room used for this slot. Leave blank if activity is off-site (e.g. sports, internship).', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='timetable_entries', to='campus.room')),
                 ('section', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='timetable_entries', to='campus.section')),
             ],

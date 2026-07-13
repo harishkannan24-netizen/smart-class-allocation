@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Check, X, ArrowLeftRight } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
+import { broadcast } from "../utils/broadcast";
+import type { Department } from "../types";
 import { useAuth } from "../context/AuthContext";
 import type { Block, Day, Room, Section, TemporaryAllocation } from "../types";
 
@@ -25,32 +27,50 @@ export default function Allocations() {
   const [allocations, setAllocations] = useState<TemporaryAllocation[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState({
-    block: "", room: "", section: "", day: "MON", start_time: "10:00", end_time: "12:00", reason: "",
+    department: "", block: "", room: "", section: "", year: "1", day: "MON", start_time: "10:00", end_time: "12:00", reason: "",
   });
 
+  const YEARS = ["1", "2", "3", "4", "5"];
+  const filteredSections = sections.filter((s) => String(s.year) === form.year);
+
   const load = () => {
-    api.get("/campus/temporary-allocations/").then((r) => setAllocations(r.data.results ?? r.data));
-    api.get("/campus/blocks/").then((r) => setBlocks(r.data.results ?? r.data));
-    api.get("/campus/rooms/").then((r) => setRooms(r.data.results ?? r.data));
-    api.get("/campus/sections/").then((r) => setSections(r.data.results ?? r.data));
+    Promise.all([
+      fetchAll("/campus/temporary-allocations/"),
+      fetchAll("/campus/blocks/"),
+      fetchAll("/campus/rooms/"),
+      fetchAll("/campus/sections/"),
+      fetchAll("/campus/departments/"),
+    ]).then(([a, b, r, s, d]) => {
+      setAllocations(a as any[]);
+      setBlocks(b as any[]);
+      setRooms(r as any[]);
+      setSections(s as any[]);
+      setDepartments(d as any[]);
+    });
   };
 
   useEffect(load, []);
 
-  const filteredRooms = form.block ? rooms.filter((r) => r.block === Number(form.block)) : rooms;
+  const filteredRooms = rooms.filter((r) => (
+    (form.block ? r.block === Number(form.block) : true)
+    && (form.department ? String(r.department) === String(form.department) : true)
+  ));
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post("/campus/temporary-allocations/", {
+      const res = await api.post("/campus/temporary-allocations/", {
         ...form, room: Number(form.room), section: Number(form.section),
       });
+      // broadcast change so other pages can reload
+      try { broadcast({ type: "temporary_allocation_created", payload: res.data }); } catch (e) { /* ignore */ }
       setShowForm(false);
       load();
     } finally {
@@ -78,6 +98,19 @@ export default function Allocations() {
       {showForm && (
         <form onSubmit={handleSubmit} className="card mb-6 grid grid-cols-1 gap-4 p-6 sm:grid-cols-3">
           <div>
+            <label className="label">Department</label>
+            <select
+              className="input"
+              value={form.department}
+              onChange={(e) => setForm({ ...form, department: e.target.value, room: "" })}
+            >
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.code}</option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="label">Block</label>
             <select
               className="input"
@@ -102,10 +135,27 @@ export default function Allocations() {
             </select>
           </div>
           <div>
+            <label className="label">Year</label>
+            <select
+              className="input"
+              required
+              value={form.year}
+              onChange={(e) => setForm({ ...form, year: e.target.value, section: "" })}
+            >
+              {YEARS.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="label">Section</label>
             <select className="input" required value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })}>
               <option value="">Select section</option>
-              {sections.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {filteredSections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.department_code ? `${s.department_code}-${s.name}` : s.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -146,6 +196,7 @@ export default function Allocations() {
               <tr>
                 <th className="px-5 py-3 font-medium">Room</th>
                 <th className="px-5 py-3 font-medium">Section</th>
+                <th className="px-5 py-3 font-medium">Year</th>
                 <th className="px-5 py-3 font-medium">When</th>
                 <th className="px-5 py-3 font-medium">Reason</th>
                 <th className="px-5 py-3 font-medium">Status</th>
@@ -159,6 +210,7 @@ export default function Allocations() {
                     {a.room_block_name ? `${a.room_block_name} — ${a.room_number}` : a.room_number}
                   </td>
                   <td className="px-5 py-3 text-slate-600">{a.section_label}</td>
+                  <td className="px-5 py-3 text-slate-600">{a.section_year ?? "—"}</td>
                   <td className="px-5 py-3 text-slate-500">
                     {a.day} · {a.start_time.slice(0, 5)}–{a.end_time.slice(0, 5)}
                   </td>

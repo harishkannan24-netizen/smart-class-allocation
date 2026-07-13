@@ -5,6 +5,9 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
+import openpyxl
+from openpyxl.worksheet.datavalidation import DataValidation
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,14 +18,16 @@ from .importers import (
 )
 from .models import (
     Block, Campus, Department, Floor, Room, Section,
-    TemporaryAllocation, TimetableEntry,
+    TemporaryAllocation, TimetableEntry, Timeslot,
 )
 from .serializers import (
     BlockSerializer, CampusSerializer, DepartmentSerializer, FloorSerializer,
     FreeRoomQuerySerializer, RoomSerializer, SectionSerializer,
     TemporaryAllocationSerializer, TimetableEntrySerializer,
 )
+from .serializers import TimeslotSerializer
 from .services import find_free_rooms, get_room_status_for_slot, recommend_best_room
+from rest_framework.permissions import IsAuthenticated
 
 User = get_user_model()
 
@@ -76,17 +81,32 @@ class RoomViewSet(viewsets.ModelViewSet):
 
 
 class SectionViewSet(viewsets.ModelViewSet):
-    queryset = Section.objects.select_related("department", "permanent_room").all()
+    queryset = Section.objects.select_related(
+        "department",
+        "permanent_room__floor__block",
+    ).all()
     serializer_class = SectionSerializer
     permission_classes = [IsSuperAdminOrDeptAdmin]
     filterset_fields = ["department", "year"]
 
 
+class TimeslotViewSet(viewsets.ModelViewSet):
+    queryset = Timeslot.objects.all()
+    serializer_class = TimeslotSerializer
+    permission_classes = [IsSuperAdminOrReadOnly]
+
+
 class TimetableEntryViewSet(viewsets.ModelViewSet):
-    queryset = TimetableEntry.objects.select_related("section", "room").all()
+    queryset = TimetableEntry.objects.select_related(
+        "section",
+        "section__department",
+        "section__permanent_room__floor__block",
+        "room__floor__block",
+        "timeslot",
+    ).all()
     serializer_class = TimetableEntrySerializer
     permission_classes = [IsSuperAdminOrDeptAdmin]
-    filterset_fields = ["section", "room", "day", "activity_type"]
+    filterset_fields = ["section", "room", "day", "activity_type", "timeslot"]
 
 
 class TemporaryAllocationViewSet(viewsets.ModelViewSet):
@@ -180,6 +200,9 @@ class ImportRoomsView(APIView):
             return Response({"imported": count})
         except ValidationError as exc:
             return Response({"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages or str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            # Return readable error for frontend instead of HTTP 500
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ImportSectionsView(APIView):
@@ -206,10 +229,94 @@ class ImportTimetableEntriesView(APIView):
         if not uploaded_file:
             return Response({"detail": "Please upload a file under the 'file' field."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            count = import_timetable_entries(uploaded_file)
-            return Response({"imported": count})
+            preview_only = str(request.data.get("preview", "false")).lower() in {"1", "true", "yes"}
+            # optional timeslot labels filter (JSON array)
+            timeslot_labels_raw = request.data.get("timeslot_labels")
+            timeslot_labels = None
+            if timeslot_labels_raw:
+                import json
+                try:
+                    timeslot_labels = json.loads(timeslot_labels_raw) if isinstance(timeslot_labels_raw, str) else list(timeslot_labels_raw)
+                except Exception:
+                    timeslot_labels = None
+
+            if preview_only:
+                payload = import_timetable_entries(uploaded_file, preview_mode=True, timeslot_labels=timeslot_labels)
+                return Response(payload)
+
+            result = import_timetable_entries(uploaded_file, timeslot_labels=timeslot_labels)
+            return Response({
+                "imported": result.get("imported", 0),
+                "skipped": result.get("skipped", 0),
+                "message": "Timetable entries imported successfully.",
+                "errors": result.get("errors", []),
+            })
         except ValidationError as exc:
             return Response({"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages or str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class RoomChoicesView(APIView):
+    """Return available room_type and status choices from the Room model."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        types = [{"value": t[0], "label": t[1]} for t in Room.RoomType.choices]
+        statuses = [{"value": s[0], "label": s[1]} for s in Room.Status.choices]
+        return Response({"room_types": types, "statuses": statuses})
+
+
+class RoomsTemplateView(APIView):
+    """Generate an XLSX template with dropdowns for room_type and status."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        types = [t[0] for t in Room.RoomType.choices]
+        statuses = [s[0] for s in Room.Status.choices]
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Rooms Template"
+
+        headers = ["floor", "room_number", "room_type", "capacity", "department", "status", "has_projector", "has_smart_board", "is_computer_lab", "has_ac", "has_wifi"]
+        ws.append(headers)
+
+        # add some sample rows
+        for i in range(1, 21):
+            ws.append([2, f"LHA{200 + i}", types[0], 60, "", statuses[0], True, False, False, True, True])
+
+        # Create a hidden sheet with lists for validation
+        list_ws = wb.create_sheet(title="Lists")
+        # room types in column A
+        for idx, val in enumerate(types, start=1):
+            list_ws.cell(row=idx, column=1, value=val)
+        # statuses in column B
+        for idx, val in enumerate(statuses, start=1):
+            list_ws.cell(row=idx, column=2, value=val)
+
+        # Define data validation referencing the Lists sheet
+        max_row = 1000
+        dv_type = DataValidation(type="list", formula1="=Lists!$A$1:$A${}".format(len(types)), allow_blank=True)
+        dv_status = DataValidation(type="list", formula1="=Lists!$B$1:$B${}".format(len(statuses)), allow_blank=True)
+
+        # apply to the room_type column (D) and status column (G)
+        ws.add_data_validation(dv_type)
+        ws.add_data_validation(dv_status)
+        for r in range(2, max_row + 1):
+            dv_type.add(ws.cell(row=r, column=4))
+            dv_status.add(ws.cell(row=r, column=7))
+
+        # hide the Lists sheet
+        list_ws.sheet_state = 'hidden'
+
+        # save workbook to bytes
+        from io import BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        resp = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        resp['Content-Disposition'] = 'attachment; filename=rooms-template.xlsx'
+        return resp
 
 
 class DashboardStatsView(APIView):

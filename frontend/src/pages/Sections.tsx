@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Trash2, GraduationCap, UploadCloud, Edit3 } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
+import { subscribe } from "../utils/broadcast";
 import type { Department, Room, Section } from "../types";
 
 export default function Sections() {
   const [sections, setSections] = useState<Section[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [tempAllocMap, setTempAllocMap] = useState<Record<number, { room_number: string; room_id: number }>>({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -24,17 +26,31 @@ export default function Sections() {
   const load = () => {
     setLoading(true);
     Promise.all([
-      api.get("/campus/sections/"),
-      api.get("/campus/departments/"),
-      api.get("/campus/rooms/"),
-    ]).then(([s, d, r]) => {
-      setSections(s.data.results ?? s.data);
-      setDepartments(d.data.results ?? d.data);
-      setRooms(r.data.results ?? r.data);
+      fetchAll("/campus/temporary-allocations/"),
+      fetchAll("/campus/sections/"),
+      fetchAll("/campus/departments/"),
+      fetchAll("/campus/rooms/"),
+    ]).then(([allocations, s, d, r]) => {
+      setSections(s as any[]);
+      setDepartments(d as any[]);
+      setRooms(r as any[]);
+      const map: Record<number, { room_number: string; room_id: number }> = {};
+      allocations.forEach((al: any) => {
+        if (al?.section && al?.room_number) {
+          map[al.section] = { room_number: al.room_number, room_id: al.room };
+        }
+      });
+      setTempAllocMap(map);
     }).finally(() => setLoading(false));
   };
 
   useEffect(load, []);
+  useEffect(() => {
+    const unsub = subscribe((m) => {
+      if (m.type === "temporary_allocation_created") load();
+    });
+    return unsub;
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -227,7 +243,16 @@ export default function Sections() {
                   <td className="px-5 py-3 font-semibold text-slate-800">{s.label}</td>
                   <td className="px-5 py-3 text-slate-500">{s.class_advisor || "—"}</td>
                   <td className="px-5 py-3 text-slate-500">{s.strength}</td>
-                  <td className="px-5 py-3 text-slate-500">{s.permanent_room_number || "—"}</td>
+                  <td className="px-5 py-3 text-slate-500">
+                    {tempAllocMap[s.id] ? (
+                      <span className="flex items-center gap-2">
+                        <span>{tempAllocMap[s.id].room_number}</span>
+                        <span className="badge bg-amber-50 text-amber-700">Temporary</span>
+                      </span>
+                    ) : (
+                      s.permanent_room_number || "—"
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-right flex items-center justify-end gap-3">
                     <button onClick={() => handleEdit(s)} className="text-slate-400 hover:text-brand-700">
                       <Edit3 size={16} />

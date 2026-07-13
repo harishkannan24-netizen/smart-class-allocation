@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Trash2, Building2, Layers3 } from "lucide-react";
-import api from "../api/client";
+import api, { fetchAll } from "../api/client";
 import type { Block, Campus, Floor } from "../types";
 
 export default function CampusStructure() {
@@ -21,13 +21,13 @@ export default function CampusStructure() {
   const loadAll = async () => {
     try {
       const [campusRes, blocksRes, floorsRes] = await Promise.all([
-        api.get("/campus/campuses/"),
-        api.get("/campus/blocks/"),
-        api.get("/campus/floors/"),
+        fetchAll("/campus/campuses/"),
+        fetchAll("/campus/blocks/"),
+        fetchAll("/campus/floors/"),
       ]);
-      setCampuses(campusRes.data.results ?? campusRes.data);
-      setBlocks(blocksRes.data.results ?? blocksRes.data);
-      setFloors(floorsRes.data.results ?? floorsRes.data);
+      setCampuses(campusRes as any[]);
+      setBlocks(blocksRes as any[]);
+      setFloors(floorsRes as any[]);
     } catch (error) {
       console.error("CampusStructure load failed", error);
     }
